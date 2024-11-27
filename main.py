@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 os.system('cls' if os.name == 'nt' else 'clear')
 tprint('Breaking_BadFlows')
 
+
+sensible = ["Broken Changes", "Broken Change", "Breaking Changes", "Breaking Change", "Breaking", "Broken"]
+
 def get_requester(url, headers=None):
     """Fetches the content of a URL.
 
@@ -143,7 +146,7 @@ def fetch_page(repository_name, page, headers):
         release_notes = soup.find_all('div', class_='markdown-body')
         results = []
         for release_note in release_notes:
-            if 'Breaking Changes' in release_note.text or 'Broken Changes' in release_note.text:
+            if any(term in release_note.text for term in sensible):
                 tag = release_note.find_previous('h2', class_='sr-only').text
                 results.append(tag)
         return results
@@ -170,7 +173,7 @@ def get_release_notes(repository_name):
             print('    - Scraping all pages...')
             results = []
 
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust the number of threads as needed
                 futures = {executor.submit(fetch_page, repository_name, page, headers): page for page in range(1, last_page + 1)}
                 for future in as_completed(futures):
                     page = futures[future]
@@ -185,12 +188,35 @@ def get_release_notes(repository_name):
                 print("\nBreaking changes found in the following tags:")
                 for tag in results:
                     formatted_tag = re.sub(r'^(.*?)(\d+\.\d+\.\d+)(.*?)$', r'(v)\2', tag).replace('(v)', 'v')
-                    print(f"  - {formatted_tag} - URL : https://github.com/helm/helm/releases/tag/{formatted_tag}")
+                    print(f"  - {formatted_tag} - URL : https://github.com/{repository_name}/releases/tag/{formatted_tag}")
 
             else:
                 print("No breaking changes found in any release notes.")
-    else:
-        print(f"Failed to fetch release notes. HTTP Status Code: {response.status_code}")
+                ask_changelog = input("\nDo you want to check within the ChangeLog instead ? (Y/n) ")
+                if ask_changelog not in ['no', 'n']:
+                    builderurl = f"https://raw.githubusercontent.com/{repository_name}/refs/heads/main/CHANGELOG.md"
+                    print(f'    Tentative on : {builderurl}')
+
+                    headers = {'accept': 'text/html'}
+                    response = get_requester(builderurl, headers=headers)
+                                        
+                    if response and response.status_code == 200:
+                        changelog_content = response.text
+                        breaking_changes = [
+                            line for line in changelog_content.splitlines() 
+                            if any(re.search(term, line, re.IGNORECASE) for term in sensible)
+                        ]
+
+                        if breaking_changes:
+                            print("Breaking changes found in the ChangeLog!")
+                            for change in breaking_changes:
+                                print(f"- {change.strip()}")
+
+                        else:
+                            print("No breaking changes found in the ChangeLog.")
+                    else:
+                        print(f"Failed to fetch the ChangeLog. HTTP Status Code: {response.status_code}")
+
 
 if __name__ == "__main__":
     repository_name = get_repository_name()
