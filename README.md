@@ -6,6 +6,8 @@ Because we all hate breaking changes
 
 BreakingBadFlows is a Python script designed to scrape GitHub repositories for release notes and identify breaking changes.
 
+![alt text](xd.jpg)
+
 ## Features
 
 - Search for GitHub repositories by name.
