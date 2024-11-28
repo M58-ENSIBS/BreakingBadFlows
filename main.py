@@ -3,7 +3,14 @@ from art import *
 import re
 import os
 from pprint import pprint
-import inquirer
+from urllib.parse import unquote
+from html import unescape
+
+from InquirerPy import inquirer
+from InquirerPy import prompt
+from InquirerPy.base.control import Choice
+from InquirerPy.separator import Separator
+
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -34,7 +41,7 @@ def get_requester(url, headers=None):
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'user-agent': 'Mozilla/5.0 Chrome/131.0.0.0 Safari/537.36',
         'x-github-target': 'dotcom',
         'x-react-router': 'json',
     }
@@ -77,25 +84,39 @@ def search_github_repositories(repository_name):
                 for key, value in data.items():
                     if key == 'hl_name':
                         clean_value = re.sub(r'</?em>', '', value)
+                        clean_value = unescape(unquote(clean_value))
                         repo_names.append(clean_value)
                     grep_hl_name(value)
             elif isinstance(data, list):
                 for item in data:
                     grep_hl_name(item)
 
-        grep_hl_name(data)
+            grep_hl_name(data)
+
+        repo_names.append(Separator('--------------------'))
+        repo_names.append('Others')
 
         if repo_names:
             questions = [
-                inquirer.List('repository',
-                    message="Which repository do you want to scrape?",
-                    choices=repo_names,
-                ),
+                {
+                    'type': 'list',
+                    'name': 'repository',
+                    'message': "Which repository do you want to scrape?",
+                    'choices': repo_names,
+                }
             ]
-            answers = inquirer.prompt(questions)
-            print("Selected repository:", answers['repository'])
-            return answers['repository']
+            answers = prompt(questions)
+            if answers['repository'] != 'Others':
+                print("Selected repository:", answers['repository'])
+                return unquote(answers['repository'])
 
+            else:
+                repo_url = input("- Enter the full URI of the repository: ")
+                repo_name = repo_url.replace('https://github.com/', '')
+                repo_name = repo_name[:-1] if repo_name.endswith('/') else repo_name
+
+                print("\nSelected repository:", repo_name)
+                return repo_name
         else:
             print("No repositories found.")
     
@@ -122,8 +143,14 @@ def isolate_tags(repository_name):
 
         tag_names = [tag.text.strip() for tag in tags]
         tag_names = [tag for tag in tag_names if not tag.startswith('Notes') and not tag.startswith('Compare') and not tag.startswith('Downloads')]
-        print(f'    - Latest version is: {tag_names[0]}')
-
+        try:
+            if tag_names:
+                print(f'    - Latest version is: {tag_names[0]}')
+            else:
+                print("    - No tags found.")
+        except IndexError:
+            print("    - No tags found.")
+        return tag_names
     else:
         print(f"Failed to fetch tags. HTTP Status Code: {response.status_code}")
         return []
@@ -164,6 +191,9 @@ def get_release_notes(repository_name):
     
     if response and response.status_code == 200:
         soup = BeautifulSoup(response.text, 'html.parser')
+        if soup.find('h2', class_='mb-1') and soup.find('h2', class_='mb-1').text == 'There aren’t any releases here':
+            print("    - No releases found.")
+            return
         pages = soup.find_all('a', attrs={'aria-label': re.compile(r'Page \d+')})
         last_page = int(pages[-1].text) if pages else 1
         print(f'    - {last_page} pages of releases found.')
